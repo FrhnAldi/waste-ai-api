@@ -1,0 +1,6 @@
+flask
+gunicorn
+# Tambahkan library AI kamu di bawah, contoh:
+ultralytics
+opencv-python-headless
+numpy
