@@ -16,8 +16,8 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wasteguard")
 
 # --- Konfigurasi Path Model ---
-YOLO_MODEL_PATH = "models/yolov8n.pt"
-CLASSIFIER_FILE = "models/model_b3_final.h5"
+YOLO_MODEL_PATH = "yolov8n.pt"
+CLASSIFIER_FILE = "model_b3_final.h5"
 
 model_yolo = None
 model_classifier = None
