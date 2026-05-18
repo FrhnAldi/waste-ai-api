@@ -1,6 +1,6 @@
-flask
-gunicorn
-# Tambahkan library AI kamu di bawah, contoh:
+fastapi
+uvicorn
 ultralytics
-opencv-python-headless
+tensorflow
+pillow
 numpy
