@@ -10,27 +10,19 @@ import threading
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wasteguard")
 
-YOLO_MODEL_PATH = "yolov8n.pt"
 CLASSIFIER_FILE = "model_b3_final.h5"
 
-model_yolo = None
 model_classifier = None
 models_ready = False
 
 def load_all_models():
-    global model_yolo, model_classifier, models_ready
+    global model_classifier, models_ready
     try:
         import tensorflow as tf
-        from ultralytics import YOLO
 
         base_dir = os.path.dirname(__file__)
-
-        # Load YOLO
-        model_yolo = YOLO(os.path.join(base_dir, YOLO_MODEL_PATH))
-        logger.info("✅ YOLO loaded")
-
-        # Load Classifier
         path_classifier = os.path.join(base_dir, CLASSIFIER_FILE)
+
         if not os.path.exists(path_classifier):
             logger.error(f"❌ File tidak ditemukan: {path_classifier}")
             return
@@ -51,12 +43,11 @@ def load_all_models():
         model_classifier.predict(dummy, verbose=0)
 
         models_ready = True
-        logger.info("✅ Semua model siap!")
+        logger.info("✅ Classifier siap!")
 
     except Exception as e:
         logger.exception(f"❌ Gagal memuat model: {e}")
 
-# Jalankan loading di background thread agar port langsung terbuka
 threading.Thread(target=load_all_models, daemon=True).start()
 
 app = FastAPI(title="WasteGuard API")
@@ -69,9 +60,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-def predict_waste(img_crop: Image.Image):
+def predict_waste(img: Image.Image):
     import tensorflow as tf
-    img = img_crop.resize((224, 224))
+    img = img.resize((224, 224))
     img_array = tf.keras.preprocessing.image.img_to_array(img)
     img_array = np.expand_dims(img_array, axis=0)
     img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
@@ -98,25 +89,19 @@ async def detect(image: UploadFile = File(...)):
     contents = await image.read()
     pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
 
-    results = model_yolo(np.array(pil_img), conf=0.25, verbose=False)
+    # Langsung klasifikasi seluruh gambar
+    label, category, confidence = predict_waste(pil_img)
 
-    detections = []
-    for result in results:
-        for box in result.boxes:
-            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
-            crop = pil_img.crop((x1, y1, x2, y2))
-            label, category, confidence = predict_waste(crop)
-            detections.append({
-                "label": label,
-                "category": category,
-                "confidence": confidence,
-                "bbox": [x1, y1, x2, y2],
-            })
-
+    w, h = pil_img.size
     return {
         "success": True,
-        "total": len(detections),
-        "detections": detections,
+        "total": 1,
+        "detections": [{
+            "label": label,
+            "category": category,
+            "confidence": confidence,
+            "bbox": [0, 0, w, h],
+        }],
     }
 
 if __name__ == "__main__":
