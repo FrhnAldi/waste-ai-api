@@ -90,8 +90,11 @@ async def detect(image: UploadFile = File(...)):
     pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
     img_array = np.array(pil_img)
 
-    # Deteksi objek dengan YOLO, confidence rendah agar lebih sensitif
     results = model_yolo(img_array, conf=0.1, verbose=False)
+    
+    # Tambah logging
+    total_boxes = sum(len(r.boxes) for r in results)
+    logger.info(f"YOLO detected {total_boxes} objects")
 
     detections = []
     for result in results:
@@ -106,8 +109,8 @@ async def detect(image: UploadFile = File(...)):
                 "bbox": [x1, y1, x2, y2],
             })
 
-    # Fallback: jika YOLO tidak deteksi apapun, klasifikasi seluruh gambar
     if not detections:
+        logger.info("YOLO detected 0 objects, using fallback")
         label, category, confidence = predict_waste(pil_img)
         w, h = pil_img.size
         detections.append({
