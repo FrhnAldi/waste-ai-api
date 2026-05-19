@@ -10,19 +10,25 @@ import threading
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("wasteguard")
 
+YOLO_MODEL_PATH = "yolov8n.pt"
 CLASSIFIER_FILE = "model_b3_final.h5"
 
+model_yolo = None
 model_classifier = None
 models_ready = False
 
 def load_all_models():
-    global model_classifier, models_ready
+    global model_yolo, model_classifier, models_ready
     try:
         import tensorflow as tf
+        from ultralytics import YOLO
 
         base_dir = os.path.dirname(__file__)
-        path_classifier = os.path.join(base_dir, CLASSIFIER_FILE)
 
+        model_yolo = YOLO(os.path.join(base_dir, YOLO_MODEL_PATH))
+        logger.info("✅ YOLO loaded")
+
+        path_classifier = os.path.join(base_dir, CLASSIFIER_FILE)
         if not os.path.exists(path_classifier):
             logger.error(f"❌ File tidak ditemukan: {path_classifier}")
             return
@@ -38,12 +44,11 @@ def load_all_models():
             custom_objects={"Dense": CompatibleDense},
         )
 
-        # Warmup
         dummy = np.zeros((1, 224, 224, 3), dtype=np.float32)
         model_classifier.predict(dummy, verbose=0)
 
         models_ready = True
-        logger.info("✅ Classifier siap!")
+        logger.info("✅ Semua model siap!")
 
     except Exception as e:
         logger.exception(f"❌ Gagal memuat model: {e}")
@@ -66,9 +71,7 @@ def predict_waste(img: Image.Image):
     img_array = tf.keras.preprocessing.image.img_to_array(img)
     img_array = np.expand_dims(img_array, axis=0)
     img_array = tf.keras.applications.mobilenet_v2.preprocess_input(img_array)
-
     prediction = float(model_classifier.predict(img_array, verbose=0)[0][0])
-
     if prediction < 0.5:
         return "Sampah B3", "B3", round(1.0 - prediction, 4)
     else:
@@ -76,10 +79,7 @@ def predict_waste(img: Image.Image):
 
 @app.get("/health")
 def health_check():
-    return {
-        "status": "ok",
-        "models_ready": models_ready,
-    }
+    return {"status": "ok", "models_ready": models_ready}
 
 @app.post("/detect")
 async def detect(image: UploadFile = File(...)):
@@ -88,20 +88,39 @@ async def detect(image: UploadFile = File(...)):
 
     contents = await image.read()
     pil_img = Image.open(io.BytesIO(contents)).convert("RGB")
+    img_array = np.array(pil_img)
 
-    # Langsung klasifikasi seluruh gambar
-    label, category, confidence = predict_waste(pil_img)
+    # Deteksi objek dengan YOLO, confidence rendah agar lebih sensitif
+    results = model_yolo(img_array, conf=0.1, verbose=False)
 
-    w, h = pil_img.size
-    return {
-        "success": True,
-        "total": 1,
-        "detections": [{
+    detections = []
+    for result in results:
+        for box in result.boxes:
+            x1, y1, x2, y2 = map(int, box.xyxy[0].tolist())
+            crop = pil_img.crop((x1, y1, x2, y2))
+            label, category, confidence = predict_waste(crop)
+            detections.append({
+                "label": label,
+                "category": category,
+                "confidence": confidence,
+                "bbox": [x1, y1, x2, y2],
+            })
+
+    # Fallback: jika YOLO tidak deteksi apapun, klasifikasi seluruh gambar
+    if not detections:
+        label, category, confidence = predict_waste(pil_img)
+        w, h = pil_img.size
+        detections.append({
             "label": label,
             "category": category,
             "confidence": confidence,
             "bbox": [0, 0, w, h],
-        }],
+        })
+
+    return {
+        "success": True,
+        "total": len(detections),
+        "detections": detections,
     }
 
 if __name__ == "__main__":
